@@ -37,6 +37,10 @@ sig = [50,75,750,250,250]/fs;
 rho = [.29,.60,.08,.01,.02];
 */
 
+#ifndef SE_2PI
+#define SE_2PI 2.0*M_PI
+#endif
+
 class GMM_Spectral_Taps
 {
  private:
