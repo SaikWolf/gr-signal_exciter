@@ -160,7 +160,7 @@ class GMM_Spectral_Taps
 
       offset = (size_t)std::ceil(float(d_tap_count)/2.);//fftshift
       for(size_t idx = 0; idx < d_tap_count; idx++){
-        taps[idx] = d_fft_out[(idx-offset)%d_tap_count][0];
+        taps[idx] = d_fft_out[(int(idx)-int(offset))%d_tap_count][0];
       }
 
       float pwr_chk = 0;
@@ -250,7 +250,7 @@ class GMM_Spectral_Taps
 
       offset = (size_t)std::ceil(float(d_tap_count)/2.);//fftshift
       for(size_t idx = 0; idx < d_tap_count; idx++){
-        taps[idx] = *((complexf*) &d_fft_out[(idx-offset)%d_tap_count]);
+        taps[idx] = *((complexf*) &d_fft_out[(int(idx)-int(offset))%d_tap_count]);
       }
 
       float pwr_chk = 0;
