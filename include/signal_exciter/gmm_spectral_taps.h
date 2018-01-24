@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Bill Clark.
+ * Copyright 2017-2018 Bill Clark.
  *
  * This is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,10 +26,12 @@
 #include <time.h>
 #include <stdio.h>
 #include <fftw3.h>
+#include <boost/math/special_functions/sinc.hpp>
 
 /*
 Working prototype model
 fs = 8000; Assumed to be sample rate of real signal
+fmax = fs/2;
 mu = [200,450,1500,2500,3500]/fs;
 sig = [50,75,750,250,250]/fs;
 rho = [.29,.60,.08,.01,.02];
@@ -89,6 +91,7 @@ class GMM_Spectral_Taps
     d_mu      = std::vector<float>(mus, mus+components);
     d_sigma   = std::vector<float>(sigmas, sigmas+components);
     d_weight  = std::vector<float>(weights, weights+components);
+    d_samp_rate = samp_rate;
     d_tap_count = tap_count;
 
     build_fft();
@@ -107,9 +110,7 @@ class GMM_Spectral_Taps
 
   ~GMM_Spectral_Taps()
   {
-    if(d_made){
-      destroy_fft();
-    }
+    destroy_fft();
   }
 
   void get_taps(std::vector<float>& taps)
@@ -120,17 +121,34 @@ class GMM_Spectral_Taps
       memset( d_fft_out, 0, sizeof(fftwf_complex)*d_tap_count );
       size_t offset = (size_t)std::ceil(float(d_tap_count)/2.);//ifftshift
 
-      float lmu,lsig,lw,ln;
-
+      float lmu,lsig,lw,ln,lp,anti_impulse;
       for(size_t kk = 0; kk < d_mu.size(); kk++){
         lmu = d_mu[kk]/d_samp_rate;
         lsig = d_sigma[kk]/d_samp_rate;
         lw = d_weight[kk]/2;
+        anti_impulse = 0.;
         for(size_t idx = 0; idx < d_tap_count; idx++){
           ln = (d_freq[idx]-lmu)/lsig;
-          d_fft_in[(int(idx)-int(offset))%d_tap_count][0] += (lw/std::sqrt(2.*M_PI*lsig*lsig)) * std::exp(-ln*ln/2.);
+          lp = (lw/std::sqrt(2.*M_PI*lsig*lsig)) * std::exp(-ln*ln/2.);
+          anti_impulse += lp*lp;
+          d_fft_in[(int(idx)-int(offset))%d_tap_count][0] += lp;
           ln = (d_freq[idx]+lmu)/lsig;
-          d_fft_in[(int(idx)-int(offset))%d_tap_count][0] += (lw/std::sqrt(2.*M_PI*lsig*lsig)) * std::exp(-ln*ln/2.);
+          lp = (lw/std::sqrt(2.*M_PI*lsig*lsig)) * std::exp(-ln*ln/2.);
+          anti_impulse += lp*lp;
+          d_fft_in[(int(idx)-int(offset))%d_tap_count][0] += lp;
+        }
+        if(!anti_impulse){
+          //For the given conditions, no bin has energy
+          //Treat component as an impulse and apply sinc to each bin
+          // Assume a sinc of 16x more taps than the tap count
+          for(size_t idx = 0; idx < d_tap_count; idx++){
+            ln = d_freq[idx]-lmu;
+            lp = (lw/std::sqrt(2.*M_PI*lsig*lsig)) * boost::math::sinc_pi(float(8*SE_2PI*d_tap_count)*ln);
+            d_fft_in[(int(idx)-int(offset))%d_tap_count][0] += lp;
+            ln = d_freq[idx]+lmu;
+            lp = (lw/std::sqrt(2.*M_PI*lsig*lsig)) * boost::math::sinc_pi(float(8*SE_2PI*d_tap_count)*ln);
+            d_fft_in[(int(idx)-int(offset))%d_tap_count][0] += lp;
+          }
         }
       }
 
@@ -163,17 +181,33 @@ class GMM_Spectral_Taps
       memset( d_fft_out, 0, sizeof(fftwf_complex)*d_tap_count );
       size_t offset = (size_t)std::ceil(float(d_tap_count)/2.);//ifftshift
 
-      float lmu,lsig,lw,ln;
+      float lmu,lsig,lw,ln,lp,anti_impulse;
 
       if(d_mode > 0){
         for(size_t kk = 0; kk < d_mu.size(); kk++){
           lmu = d_mu[kk]/d_samp_rate;
           lsig = d_sigma[kk]/d_samp_rate;
           lw = d_weight[kk];
+          anti_impulse = 0.;
           for(size_t idx = 0; idx < d_tap_count; idx++){
             if((d_freq[idx]>=0.) && (idx!=0)){
               ln = (d_freq[idx]-lmu)/lsig;
-              d_fft_in[(int(idx)-int(offset))%d_tap_count][0] += (lw/std::sqrt(2.*M_PI*lsig*lsig)) * std::exp(-ln*ln/2.);
+              lp = (lw/std::sqrt(2.*M_PI*lsig*lsig)) * std::exp(-ln*ln/2.);
+              anti_impulse += lp*lp;
+              d_fft_in[(int(idx)-int(offset))%d_tap_count][0] += lp;
+            }
+          }
+          if(!anti_impulse){
+            //For the given conditions, no bin has energy
+            //Treat component as an impulse and apply sinc to each bin
+            // Assume a sinc of 16x more taps than the tap count
+            for(size_t idx = 0; idx < d_tap_count; idx++){
+              if((d_freq[idx]>=0.) && (idx!=0)){
+                ln = d_freq[idx]-lmu;
+                lp = (lw/std::sqrt(2.*M_PI*lsig*lsig)) * 
+                      boost::math::sinc_pi(float(8*SE_2PI*d_tap_count)*ln);
+                d_fft_in[(int(idx)-int(offset))%d_tap_count][0] += lp;
+              }
             }
           }
         }
@@ -183,10 +217,26 @@ class GMM_Spectral_Taps
           lmu = d_mu[kk]/d_samp_rate;
           lsig = d_sigma[kk]/d_samp_rate;
           lw = d_weight[kk];
+          anti_impulse = 0.;
           for(size_t idx = 0; idx < d_tap_count; idx++){
             if((d_freq[idx]<=0.) && (idx!=0)){
               ln = (d_freq[idx]+lmu)/lsig;
-              d_fft_in[(int(idx)-int(offset))%d_tap_count][0] += (lw/std::sqrt(2.*M_PI*lsig*lsig)) * std::exp(-ln*ln/2.);
+              lp = (lw/std::sqrt(2.*M_PI*lsig*lsig)) * std::exp(-ln*ln/2.);
+              anti_impulse += lp*lp;
+              d_fft_in[(int(idx)-int(offset))%d_tap_count][0] += lp;
+            }
+          }
+          if(!anti_impulse){
+            //For the given conditions, no bin has energy
+            //Treat component as an impulse and apply sinc to each bin
+            // Assume a sinc of 16x more taps than the tap count
+            for(size_t idx = 0; idx < d_tap_count; idx++){
+              if((d_freq[idx]>=0.) && (idx!=0)){
+                ln = d_freq[idx]+lmu;
+                lp = (lw/std::sqrt(2.*M_PI*lsig*lsig)) * 
+                      boost::math::sinc_pi(float(8*SE_2PI*d_tap_count)*ln);
+                d_fft_in[(int(idx)-int(offset))%d_tap_count][0] += lp;
+              }
             }
           }
         }
@@ -196,7 +246,7 @@ class GMM_Spectral_Taps
 
       offset = (size_t)std::ceil(float(d_tap_count)/2.);//fftshift
       for(size_t idx = 0; idx < d_tap_count; idx++){
-        taps[idx] = *((complexf*) d_fft_out[(idx-offset)%d_tap_count]);
+        taps[idx] = *((complexf*) &d_fft_out[(idx-offset)%d_tap_count]);
       }
 
       float pwr_chk = 0;
