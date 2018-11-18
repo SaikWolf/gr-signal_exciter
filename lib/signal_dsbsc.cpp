@@ -72,13 +72,13 @@ Signal_DSBSC::Signal_DSBSC(float mod_idx, size_t components, float* mu,
 
 Signal_DSBSC::~Signal_DSBSC()
 {
-  delete d_rng;
-  delete d_fir;
   if(d_enable){
     d_running = false;
     d_TGroup.join_all();
     delete d_Sy;
   }
+  delete d_rng;
+  delete d_fir;
   for(size_t idx = 0; idx < d_interp; idx++){
     delete d_firs[idx];
   }
