@@ -53,7 +53,7 @@ Signal_CPM::Signal_CPM(int order, gr::analog::cpm::cpm_type phase_type,
     double pwr_chk = 0.;
     for(size_t idx = 0; idx < augment_length; idx++){
       d_proto_taps[idx] = augment_taps[idx];
-      pwr_chk = augment_taps[idx]*augment_taps[idx];
+      pwr_chk += augment_taps[idx]*augment_taps[idx];
     }
     pwr_chk = 1./std::sqrt(pwr_chk);
     for(size_t idx = 0; idx < d_proto_taps.size(); idx++){

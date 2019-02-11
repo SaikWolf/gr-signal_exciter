@@ -50,7 +50,7 @@ Signal_FSK::Signal_FSK(int order, int sps, float mod_idx, int seed,
     double pwr_chk = 0.;
     for(size_t idx = 0; idx < augment_length; idx++){
       d_proto_taps[idx] = augment_taps[idx];
-      pwr_chk = augment_taps[idx]*augment_taps[idx];
+      pwr_chk += augment_taps[idx]*augment_taps[idx];
     }
     pwr_chk = 1./std::sqrt(pwr_chk);
     for(size_t idx = 0; idx < d_proto_taps.size(); idx++){
